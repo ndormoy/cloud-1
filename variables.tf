@@ -99,3 +99,12 @@ variable "asg_max_size" {
   type    = number
   default = 4
 }
+
+# ---------------------------------------------------------------------------- #
+#                                SSM                                           #
+# ---------------------------------------------------------------------------- #
+
+variable "wp_salts_ssm_parameter_name" {
+  type    = string
+  default = "/cloud1/wordpress/salts"
+}

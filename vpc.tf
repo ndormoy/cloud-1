@@ -14,8 +14,9 @@ locals {
     public  = var.subnet_size_public - tonumber(split("/", var.vpc_cidr)[1] == "" ? 16 : tonumber(split("/", var.vpc_cidr)[1]))
   }
 
-  private_subnet_offset = 0
-  public_subnet_offset  = local.azs_length
+  private_subnet_offset  = 0
+  public_subnet_offset   = local.azs_length
+  database_subnet_offset = local.azs_length * 2
 }
 
 locals {
@@ -26,6 +27,10 @@ locals {
   public_subnets = [
     for idx, az in local.azs :
     cidrsubnet(local.cidr, local.subnets_mask_newbit.public, idx + local.public_subnet_offset)
+  ]
+  database_subnets = [
+    for idx, az in local.azs :
+    cidrsubnet(local.cidr, 8, idx + local.database_subnet_offset)
   ]
 }
 
@@ -47,8 +52,9 @@ module "vpc" {
   cidr = local.cidr
   azs  = local.azs
 
-  private_subnets = local.private_subnets
-  public_subnets  = local.public_subnets
+  private_subnets  = local.private_subnets
+  public_subnets   = local.public_subnets
+  database_subnets = local.database_subnets
 
   enable_nat_gateway = true
   single_nat_gateway = true

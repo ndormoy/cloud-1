@@ -10,9 +10,21 @@ if ! command -v dnf >/dev/null 2>&1; then
 fi
 
 # ---------- 1) Mises à jour & packages ----------
-log "Updating system and installing packages"
+# log "Updating system and installing packages"
+# sudo dnf update -y
+# # sudo dnf install -y docker docker-compose-plugin amazon-efs-utils jq unzip curl awscli
+# sudo dnf install -y --allowerasing docker amazon-efs-utils jq curl awscli
+
+
+# ---------- 1) Mises à jour & packages ----------
+log "Updating system and installing base packages"
 sudo dnf update -y
-sudo dnf install -y docker docker-compose-plugin amazon-efs-utils jq unzip curl awscli
+sudo dnf install -y --allowerasing docker amazon-efs-utils jq curl awscli
+
+log "Installing Docker Compose manually"
+sudo mkdir -p /usr/local/lib/docker/cli-plugins
+sudo curl -SL https://github.com/docker/compose/releases/download/v2.27.0/docker-compose-linux-x86_64 -o /usr/local/lib/docker/cli-plugins/docker-compose
+sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 
 # ---------- 2) Docker ----------
 log "Enabling and starting Docker"
@@ -20,65 +32,65 @@ sudo systemctl enable --now docker
 sudo usermod -aG docker ec2-user || true
 
 # ---------- 3) Variables ----------
-export EFS_FS_ID="${efs_fs_id:-}"
-export AURORA_HOST="${aurora_writer_endpoint:-}"
-export AURORA_DB_NAME="${aurora_db_name:-wordpressdb}"
-export AURORA_DB_USER="${aurora_db_user:-admin}"
-export DB_PASSWORD_SECRET_ARN="${db_password_secret_arn:-}"
-export WP_SALTS_PARAM_NAME="${wp_salts_param_name:-}"
-export MEMCACHED_HOST="${memcached_host:-}"
-export MEMCACHED_PORT="${memcached_port:-11211}"
-export WP_HOME="${wp_home:-https://example.cloudfront.net}"
-export WP_SITEURL="${wp_siteurl:-https://example.cloudfront.net}"
+export EFS_FS_ID="$${efs_fs_id:-}"
+export AURORA_HOST="$${aurora_writer_endpoint:-}"
+export AURORA_DB_NAME="$${aurora_db_name:-wordpressdb}"
+export AURORA_DB_USER="$${aurora_db_user:-admin}"
+export DB_PASSWORD_SECRET_ARN="$${db_password_secret_arn:-}"
+export WP_SALTS_PARAM_NAME="$${wp_salts_param_name:-}"
+export MEMCACHED_HOST="$${memcached_host:-}"
+export MEMCACHED_PORT="$${memcached_port:-11211}"
+export WP_HOME="$${wp_home:-}"
+export WP_SITEURL="$${wp_siteurl:-}"
+
+
+
 # export SERVER_ID="$(hostname -f)"
 export SERVER_ID=""
 
 SERVER_ID="$(hostname -f)"
 
-# Validation basique des variables essentielles
 missing=0
 for v in EFS_FS_ID AURORA_HOST AURORA_DB_NAME AURORA_DB_USER MEMCACHED_HOST; do
-  if [[ -z "${!v:-}" ]]; then
+  if [[ -z "$${!v:-}" ]]; then
     log "ERROR: variable $v is empty"
     missing=1
   fi
 done
-if [[ "$missing" -eq 1 ]]; then
-  log "Some required variables are missing. Aborting."
-  exit 1
-fi
 
 # ---------- 4) Secrets ----------
 fetch_db_password() {
-  if [[ -n "${DB_PASSWORD_SECRET_ARN}" ]]; then
-    aws secretsmanager get-secret-value --secret-id "$DB_PASSWORD_SECRET_ARN" \
+  if [[ -n "$${DB_PASSWORD_SECRET_ARN}" ]]; then
+    aws secretsmanager get-secret-value --secret-id "$$DB_PASSWORD_SECRET_ARN" \
       --query 'SecretString' --output text | jq -r '.password // .db_password // .PASSWORD // empty'
   else
-    echo "${aurora_db_password:-}"
+    echo "$${aurora_db_password:-}"
   fi
 }
 
 fetch_wp_salts() {
-  if [[ -n "${WP_SALTS_PARAM_NAME}" ]]; then
-    aws ssm get-parameter --name "$WP_SALTS_PARAM_NAME" --with-decryption \
-      --query 'Parameter.Value' --output text
-  else
-    curl -fsSL https://api.wordpress.org/secret-key/1.1/salt/
+  if [[ -z "$${WP_SALTS_PARAM_NAME}" ]]; then
+    log "ERROR: WP_SALTS_PARAM_NAME variable is not set. Cannot fetch salts."
+    return 1
   fi
+
+  aws ssm get-parameter --name "$$WP_SALTS_PARAM_NAME" --with-decryption \
+    --query 'Parameter.Value' --output text
 }
 
-log "Fetching DB password and WP salts if configured"
-DB_PASSWORD="$(fetch_db_password || true)"
-WP_SALTS="$(fetch_wp_salts || true)"
+log "Fetching DB password and WP salts"
+DB_PASSWORD="$(fetch_db_password)"
+WP_SALTS="$(fetch_wp_salts)"
 
-if [[ -z "${DB_PASSWORD:-}" ]]; then
+if [[ -z "$${DB_PASSWORD:-}" ]]; then
   log "ERROR: DB password not resolved (secret empty?). Aborting."
   exit 1
 fi
-if [[ -z "${WP_SALTS:-}" ]]; then
-  log "WARN: WP salts empty; generating unique salts breaks SSO across instances."
-  WP_SALTS="$(curl -fsSL https://api.wordpress.org/secret-key/1.1/salt/)"
+if [[ -z "$${WP_SALTS:-}" ]]; then
+  log "ERROR: WP salts not resolved from SSM. Aborting."
+  exit 1
 fi
+
 
 # ---------- 5) Monter EFS ----------
 log "Mounting EFS $EFS_FS_ID"
@@ -86,7 +98,7 @@ sudo mkdir -p /mnt/efs
 if ! mountpoint -q /mnt/efs; then
   # retry loop in case mount targets not fully ready at first boot
   for i in {1..10}; do
-    if sudo mount -t efs -o tls "${EFS_FS_ID}":/ /mnt/efs; then
+    if sudo mount -t efs -o tls "$${EFS_FS_ID}":/ /mnt/efs; then
       break
     fi
     log "EFS mount failed, retrying in 6s..."
@@ -98,8 +110,8 @@ if ! mountpoint -q /mnt/efs; then
   exit 1
 fi
 
-if ! grep -q "${EFS_FS_ID}:/ /mnt/efs efs" /etc/fstab; then
-  echo "${EFS_FS_ID}:/ /mnt/efs efs _netdev,tls 0 0" | sudo tee -a /etc/fstab
+if ! grep -q "$${EFS_FS_ID}:/ /mnt/efs efs" /etc/fstab; then
+  echo "$${EFS_FS_ID}:/ /mnt/efs efs _netdev,tls 0 0" | sudo tee -a /etc/fstab
 fi
 
 # ---------- 6) Préparer wp-content ----------
@@ -108,153 +120,58 @@ sudo chown -R 33:33 /mnt/efs/wp-content
 sudo chmod -R 775 /mnt/efs/wp-content || true
 
 # ---------- 7) Dossier app ----------
+
+DB_PASSWORD_ESCAPED=$(printf '%s\n' "$DB_PASSWORD" | sed 's/\$/$$/g')
+
 sudo mkdir -p /opt/wordpress
 cd /opt/wordpress
 
 cat > .env <<EOF
-SERVER_ID=${SERVER_ID}
-WP_HOME=${WP_HOME}
-WP_SITEURL=${WP_SITEURL}
+SERVER_ID=$${SERVER_ID}
+WP_HOME=$${WP_HOME}
+WP_SITEURL=$${WP_SITEURL}
 
-DB_HOST=${AURORA_HOST}
-DB_NAME=${AURORA_DB_NAME}
-DB_USER=${AURORA_DB_USER}
-DB_PASSWORD=${DB_PASSWORD}
+DB_HOST=$${AURORA_HOST}
+DB_NAME=$${AURORA_DB_NAME}
+DB_USER=$${AURORA_DB_USER}
+DB_PASSWORD=$${DB_PASSWORD_ESCAPED}
 
-MEMCACHED_HOST=${MEMCACHED_HOST}
-MEMCACHED_PORT=${MEMCACHED_PORT}
+MEMCACHED_HOST=$${MEMCACHED_HOST}
+MEMCACHED_PORT=$${MEMCACHED_PORT}
 EOF
 
-echo "${WP_SALTS}" > wp-salts.txt
+echo "$${WP_SALTS}" > wp-salts.txt
 
-# ---------- 8) docker-compose ----------
-cat > docker-compose.yml <<'YML'
-services:
-  wordpress:
-    image: wordpress:php8.2-fpm
-    container_name: wp-php
-    environment:
-      WORDPRESS_DB_HOST: ${DB_HOST}
-      WORDPRESS_DB_NAME: ${DB_NAME}
-      WORDPRESS_DB_USER: ${DB_USER}
-      WORDPRESS_DB_PASSWORD: ${DB_PASSWORD}
-      WP_HOME: ${WP_HOME}
-      WP_SITEURL: ${WP_SITEURL}
-      MEMCACHED_HOST: ${MEMCACHED_HOST}
-      MEMCACHED_PORT: ${MEMCACHED_PORT}
-    volumes:
-      - /mnt/efs/wp-content:/var/www/html/wp-content
-      - ./wp-salts.txt:/docker-entrypoint-initwp.d/wp-salts.txt:ro
-      - ./wp-init:/docker-entrypoint-initwp.d
-    restart: unless-stopped
+# ---------- 8) a) docker-compose ----------
 
-  nginx:
-    image: nginx:stable
-    container_name: wp-nginx
-    ports:
-      - "80:80"
-    depends_on:
-      - wordpress
-    volumes:
-      - /mnt/efs/wp-content:/var/www/html/wp-content:ro
-      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
-    restart: unless-stopped
+log "Copy Docker Compose"
 
-  phpmyadmin:
-    image: phpmyadmin:latest
-    container_name: phpmyadmin
-    environment:
-      PMA_HOST: ${DB_HOST}
-      PMA_USER: ${DB_USER}
-      PMA_PASSWORD: ${DB_PASSWORD}
-    depends_on:
-      - wordpress
-    restart: unless-stopped
+cat > docker-compose.yaml <<EOF
+${docker_compose_content}
+EOF
 
-  wpcli:
-    image: wordpress:cli-php8.2
-    container_name: wp-cli
-    depends_on:
-      - wordpress
-    volumes:
-      - /mnt/efs/wp-content:/var/www/html/wp-content
-      - ./wp-salts.txt:/docker-entrypoint-initwp.d/wp-salts.txt:ro
-      - ./wp-init:/docker-entrypoint-initwp.d
-    working_dir: /var/www/html
-    entrypoint: ["bash","-lc","sleep infinity"]
-YML
+# ---------- 8) b) nginx ----------
+
+log "Copy configuration files (NGINX)"
 
 mkdir -p nginx
-cat > nginx/default.conf <<'NGINX'
-server {
-  listen 80;
-  server_name _;
+cat > nginx/default.conf <<EOF
+${nginx_conf_content}
+EOF
 
-  location /server-id {
-    default_type text/plain;
-    return 200 "$hostname\n";
-  }
 
-  root /var/www/html;
-  index index.php index.html;
+# ---------- 8) c) Wordpress ----------
 
-  location / {
-    try_files $uri /index.php?$args;
-  }
-
-  location ~ \.php$ {
-    include fastcgi_params;
-    fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
-    fastcgi_pass wordpress:9000;
-  }
-
-  location /phpmyadmin/ {
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_pass http://phpmyadmin:80/;
-  }
-
-  location ~* \.(css|js|jpg|jpeg|png|gif|ico|svg|woff2?)$ {
-    expires 7d;
-    access_log off;
-    add_header Cache-Control "public";
-    try_files $uri =404;
-  }
-}
-NGINX
+log "Copy wordpress config"
 
 mkdir -p wp-init
-cat > wp-init/10-wp-config.sh <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-
-WP_CONFIG="/var/www/html/wp-config.php"
-
-# attendre wp-config si nécessaire
-for i in {1..30}; do
-  [[ -f "$WP_CONFIG" ]] && break
-  sleep 2
-done
-
-# injecter SALTS si manquants
-if ! grep -q "AUTH_KEY" "$WP_CONFIG" && [[ -f "/docker-entrypoint-initwp.d/wp-salts.txt" ]]; then
-  cat /docker-entrypoint-initwp.d/wp-salts.txt >> "$WP_CONFIG"
-fi
-
-# forcer URLs
-if ! grep -q "WP_HOME" "$WP_CONFIG"; then
-  echo "define('WP_HOME', getenv('WP_HOME')); define('WP_SITEURL', getenv('WP_SITEURL'));" >> "$WP_CONFIG"
-fi
-
-# config Memcached
-if ! grep -q "MEMCACHED_SERVERS" "$WP_CONFIG"; then
-  echo "\$memcached_servers = array( array(getenv('MEMCACHED_HOST'), intval(getenv('MEMCACHED_PORT'))) );" >> "$WP_CONFIG"
-fi
+cat > wp-init/10-wp-config.sh <<EOF
+${wp_init_script_content}
 EOF
 chmod +x wp-init/10-wp-config.sh
 
 # ---------- 9) Démarrage ----------
-log "Starting containers"
+log "Starting containers (docker compose [...])"
 sudo /usr/bin/docker compose --env-file ./.env up -d
 
 for i in {1..60}; do
@@ -263,13 +180,53 @@ for i in {1..60}; do
 done
 
 # ---------- 10) Healthcheck + Activation plugin Memcached via wp-cli ----------
-log "Waiting for WordPress to be ready"
+
+# for i in {1..60}; do
+#   if sudo docker exec wp-cli bash -lc 'wp db check --allow-root'; then
+#     log "WordPress database connection is OK."
+#     break
+#   fi
+#   log "Waiting for DB connection... ($i/60)"
+#   sleep 2
+# done
+
+# if ! sudo docker exec wp-cli bash -lc 'wp db check --allow-root'; then
+#     log "ERROR: WordPress DB connection failed after 2 minutes. Aborting."
+#     exit 1
+# fi
+
+
+# log "Waiting for WordPress installation to complete..."
+# for i in {1..60}; do
+#   if sudo docker exec wp-cli bash -lc 'wp core is-installed --allow-root'; then
+#     log "WordPress is fully installed."
+#     break
+#   fi
+#   log "Waiting for WordPress core installation... ($i/60)"
+#   sleep 5
+# done
+
+# if ! sudo docker exec wp-cli bash -lc 'wp core is-installed --allow-root'; then
+#     log "ERROR: WordPress installation failed after timeout. Aborting."
+#     exit 1
+# fi
+
+
+log "Waiting for WordPress installation to complete..."
 for i in {1..60}; do
-  if sudo docker exec wp-php sh -c 'php -v >/dev/null 2>&1'; then
+  if sudo docker exec wp-cli bash -lc "wp core is-installed --url=$${WP_HOME} --allow-root"; then
+    log "WordPress is fully installed and ready."
     break
   fi
-  sleep 2
+  log "Waiting for WordPress core installation... ($i/60)"
+  sleep 5
 done
+
+if ! sudo docker exec wp-cli bash -lc "wp core is-installed --url=$${WP_HOME} --allow-root"; then
+    log "ERROR: WordPress installation failed after timeout. Aborting."
+    exit 1
+fi
+
 
 # Installer W3 Total Cache comme solution d'object cache (compatible Memcached)
 log "Installing and activating W3 Total Cache"

@@ -44,6 +44,13 @@ module "alb" {
       protocol          = "HTTP"
       port              = 80
       create_attachment = false
+
+      health_check = {
+        enabled = true
+        path    = "/"
+        matcher = "200,302"
+      }
     }
+
   }
 }

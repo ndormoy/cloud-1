@@ -22,18 +22,22 @@ module "asg" {
   user_data = base64encode(templatefile("${path.module}/userdata/init_ec2.sh.tpl", {
     efs_fs_id              = module.efs.id
     aurora_writer_endpoint = module.aurora.cluster_endpoint
-    # aurora_db_name         = var.db_name
+    aurora_db_name         = var.db_name
     aurora_db_user         = var.db_master_username
     db_password_secret_arn = module.aurora.cluster_master_user_secret[0].secret_arn
-    db_secret_name         = module.aurora.cluster_master_user_secret.name
-    memcached_host         = module.elasticache.primary_endpoint_address
-
+    memcached_host         = module.elasticache.cluster_address
+    # memcached_host         = module.elasticache.primary_endpoint_address
     # CENSE ETRE MIEUX
     # memcached_host         = module.elasticache.cluster_configuration_endpoint_address
 
-    memcached_port = 11211
-    wp_home        = "https://${module.cdn.cloudfront_distribution_domain_name}"
-    wp_siteurl     = "https://${module.cdn.cloudfront_distribution_domain_name}"
+    memcached_port      = 11211
+    wp_home             = "https://${module.cdn.cloudfront_distribution_domain_name}"
+    wp_siteurl          = "https://${module.cdn.cloudfront_distribution_domain_name}"
+    wp_salts_param_name = var.wp_salts_ssm_parameter_name
+
+    docker_compose_content = file("${path.module}/templates/docker-compose.yaml.tpl")
+    nginx_conf_content     = file("${path.module}/templates/nginx.conf.tpl")
+    wp_init_script_content = file("${path.module}/templates/10-wp-config.sh.tpl")
   }))
 
   traffic_source_attachments = {
@@ -46,6 +50,14 @@ module "asg" {
   desired_capacity = var.asg_desired_capacity
   min_size         = var.asg_min_size
   max_size         = var.asg_max_size
+
+  # instance_refresh = {
+  #   strategy = "Rolling"
+  #   triggers = ["launch_template"]
+  #   preferences = {
+  #     min_healthy_percentage = 50
+  #   }
+  # }
 }
 
 # ---------------------------------------------------------------------------- #
@@ -89,16 +101,7 @@ resource "aws_iam_instance_profile" "ssm_instance_profile" {
   role = aws_iam_role.ssm_role.name
 }
 
-
-data "aws_secretsmanager_secret" "db_password" {
-
-  provider = aws.default
-
-  name = module.aurora.cluster_master_user_secret.name
-}
-
-
-resource "aws_iam_policy" "read_db_secret_policy" {
+resource "aws_iam_policy" "read_secrets_policy" {
 
   provider = aws.default
 
@@ -111,23 +114,24 @@ resource "aws_iam_policy" "read_db_secret_policy" {
       {
         Action = [
           "secretsmanager:GetSecretValue",
-          "secretsmanager:DescribeSecret"
+          # "secretsmanager:DescribeSecret"
         ]
         Effect   = "Allow"
-        Resource = data.aws_secretsmanager_secret.db_password.arn
+        Resource = module.aurora.cluster_master_user_secret[0].secret_arn
       },
+      {
+        Action   = ["ssm:GetParameter"]
+        Effect   = "Allow"
+        Resource = aws_ssm_parameter.wp_salts.arn
+      }
     ]
   })
 }
 
 
 resource "aws_iam_role_policy_attachment" "ec2_app_read_secrets_attach" {
+  provider = aws.default
+
   role       = aws_iam_role.ssm_role.name
-  policy_arn = aws_iam_policy.read_db_secret_policy.arn
+  policy_arn = aws_iam_policy.read_secrets_policy.arn
 }
-
-
-
-# Si tu utilises SSM pour SALTS:
-# ajoute une policy IAM au rôle EC2:
-# ssm:GetParameter sur arn:aws:ssm:region:account:parameter/<ton_param>
