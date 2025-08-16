@@ -1,3 +1,7 @@
+# ---------------------------------------------------------------------------- #
+#                                WP SALTS                                      #
+# ---------------------------------------------------------------------------- #
+
 resource "random_password" "auth_key" {
   length  = 64
   special = false
@@ -39,6 +43,7 @@ resource "random_password" "nonce_salt" {
 }
 
 
+
 resource "aws_ssm_parameter" "wp_salts" {
   provider = aws.default
   name     = var.wp_salts_ssm_parameter_name
@@ -54,7 +59,29 @@ resource "aws_ssm_parameter" "wp_salts" {
     define('NONCE_SALT',       '${random_password.nonce_salt.result}');
   EOT
 
-  # On s'assure que le rôle IAM a le temps d'être créé avant que la policy n'essaie de l'utiliser
-  # (Ceci est une dépendance implicite qui peut être rendue explicite si nécessaire)
   depends_on = [aws_iam_role.ssm_role]
+}
+
+# ---------------------------------------------------------------------------- #
+#                                WP PASSWORD                                   #
+# ---------------------------------------------------------------------------- #
+
+resource "random_password" "wp_admin" {
+  length           = 20
+  special          = true
+  override_special = "!#$%&"
+}
+
+resource "aws_secretsmanager_secret" "wp_admin_password" {
+  provider = aws.default
+
+  name        = "wp-admin-password-${local.project_name}"
+  description = "WordPress admin password"
+}
+
+resource "aws_secretsmanager_secret_version" "wp_admin_password_v1" {
+  provider = aws.default
+
+  secret_id     = aws_secretsmanager_secret.wp_admin_password.id
+  secret_string = random_password.wp_admin.result
 }

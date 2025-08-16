@@ -108,3 +108,15 @@ variable "wp_salts_ssm_parameter_name" {
   type    = string
   default = "/cloud1/wordpress/salts"
 }
+
+variable "wp_admin_user" {
+  description = "WordPress admin user name"
+  type        = string
+  default     = "admin"
+}
+
+variable "wp_admin_email" {
+  description = "WordPress admin email"
+  type        = string
+  default     = "noedormoy@hotmail.fr"
+}
