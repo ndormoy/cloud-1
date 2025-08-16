@@ -143,7 +143,7 @@ fi
 # ---------- 6) Préparer wp-content ----------
 sudo mkdir -p /mnt/efs/wp-content
 sudo chown -R 33:33 /mnt/efs/wp-content
-sudo chmod -R 775 /mnt/efs/wp-content || true
+sudo chmod -R 777 /mnt/efs/wp-content
 
 # ---------- 7) Dossier app ----------
 
@@ -209,27 +209,6 @@ done
 
 # ---------- 10) Healthcheck + Activation plugin Memcached via wp-cli ----------
 
-# for i in {1..60}; do
-#   if sudo docker exec wp-cli bash -lc "export \$(grep -v '^#' /var/www/html/.env | xargs) && wp core is-installed --url=$${WP_HOME} --allow-root"; then
-#     log "WordPress is fully installed and ready."
-#     break
-#   fi
-#   log "Waiting for WordPress core installation... ($i/60)"
-#   sleep 5
-# done
-
-# if ! sudo docker exec wp-cli bash -lc "export \$(grep -v '^#' /var/www/html/.env | xargs) && wp core is-installed --url=$${WP_HOME} --allow-root"; then
-#     log "ERROR: WordPress installation failed after timeout. Aborting."
-#     exit 1
-# fi
-
-
-# # Installer W3 Total Cache comme solution d'object cache (compatible Memcached)
-# log "Installing and activating W3 Total Cache"
-# sudo docker exec wp-cli bash -lc 'wp plugin install w3-total-cache --activate --allow-root || true'
-
-
-
 log "Waiting for DB to be ready..."
 for i in {1..30}; do
   if sudo docker exec wp-cli bash -lc "export \$(grep -v '^#' /var/www/html/.env | xargs) && wp db check --allow-root"; then
@@ -251,8 +230,7 @@ sudo docker exec wp-cli bash -lc "export \$(grep -v '^#' /var/www/html/.env | xa
     --allow-root"
 
 log "Installing and activating W3 Total Cache"
-# Maintenant qu'il est installé, on peut installer le plugin
-sudo docker exec wp-cli bash -lc "export \$(grep -v '^#' /var/www/html/.env | xargs) && \
+sudo docker exec --user www-data wp-cli bash -lc "export \$(grep -v '^#' /var/www/html/.env | xargs) && \
   wp plugin install w3-total-cache --activate --allow-root \
     --url=$${WP_HOME} \
     --allow-root || true"
