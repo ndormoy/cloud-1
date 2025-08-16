@@ -53,14 +53,6 @@ module "asg" {
   min_size         = var.asg_min_size
   max_size         = var.asg_max_size
 
-  instance_refresh = {
-    strategy = "Rolling"
-    triggers = ["launch_template"]
-    preferences = {
-      min_healthy_percentage = 50
-    }
-  }
-
   depends_on = [
     module.aurora,
     module.elasticache,

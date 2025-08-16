@@ -122,7 +122,6 @@ fi
 log "Mounting EFS $${EFS_FS_ID}"
 sudo mkdir -p /mnt/efs
 if ! mountpoint -q /mnt/efs; then
-  # retry loop in case mount targets not fully ready at first boot
   for i in {1..10}; do
     if sudo mount -t efs -o tls "$${EFS_FS_ID}":/ /mnt/efs; then
       break
@@ -139,6 +138,8 @@ fi
 if ! grep -q "$${EFS_FS_ID}:/ /mnt/efs efs" /etc/fstab; then
   echo "$${EFS_FS_ID}:/ /mnt/efs efs _netdev,tls 0 0" | sudo tee -a /etc/fstab
 fi
+
+log "EFS Mounted"
 
 # ---------- 6) Préparer wp-content ----------
 sudo mkdir -p /mnt/efs/wp-content
@@ -210,12 +211,12 @@ done
 # ---------- 10) Healthcheck + Activation plugin Memcached via wp-cli ----------
 
 log "Waiting for DB to be ready..."
-for i in {1..30}; do
+for i in {1..240}; do
   if sudo docker exec wp-cli bash -lc "export \$(grep -v '^#' /var/www/html/.env | xargs) && wp db check --allow-root"; then
     log "WordPress database connection is OK."
     break
   fi
-  log "Waiting for DB connection... ($i/60)"
+  log "Waiting for DB connection... ($i/240)"
   sleep 2
 done
 
@@ -223,19 +224,20 @@ log "Running WordPress Core Install via wp-cli"
 sudo docker exec wp-cli bash -lc "export \$(grep -v '^#' /var/www/html/.env | xargs) && \
   wp core install \
     --url=$${WP_HOME} \
-    --title=\"Mon Site Cloud 1\" \
+    --title=\"Mon Site Cloud 1 TOTO\" \
     --admin_user=\"${wp_admin_user}\" \
     --admin_password=\"$${WP_ADMIN_PASSWORD}\" \
     --admin_email=\"${wp_admin_email}\" \
     --allow-root"
+
+log "Applying post-install configurations to wp-config.php"
+sudo docker exec wp-php bash /docker-entrypoint-initwp.d/10-wp-config.sh
 
 log "Installing and activating W3 Total Cache"
 sudo docker exec --user www-data wp-cli bash -lc "export \$(grep -v '^#' /var/www/html/.env | xargs) && \
   wp plugin install w3-total-cache --activate --allow-root \
     --url=$${WP_HOME} \
     --allow-root || true"
-
-
 
 # ---------- 11) systemd ----------
 log "Installing systemd unit for compose"
