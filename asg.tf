@@ -26,14 +26,10 @@ module "asg" {
     aurora_db_user         = var.db_master_username
     db_password_secret_arn = module.aurora.cluster_master_user_secret[0].secret_arn
     memcached_host         = module.elasticache.cluster_address
-    # memcached_host         = module.elasticache.primary_endpoint_address
-    # CENSE ETRE MIEUX
-    # memcached_host         = module.elasticache.cluster_configuration_endpoint_address
-
-    memcached_port      = 11211
-    wp_home             = "https://${module.cdn.cloudfront_distribution_domain_name}"
-    wp_siteurl          = "https://${module.cdn.cloudfront_distribution_domain_name}"
-    wp_salts_param_name = var.wp_salts_ssm_parameter_name
+    memcached_port         = 11211
+    wp_home                = "https://${module.cdn.cloudfront_distribution_domain_name}"
+    wp_siteurl             = "https://${module.cdn.cloudfront_distribution_domain_name}"
+    wp_salts_param_name    = var.wp_salts_ssm_parameter_name
 
     docker_compose_content = file("${path.module}/templates/docker-compose.yaml.tpl")
     nginx_conf_content     = file("${path.module}/templates/nginx.conf.tpl")
@@ -51,13 +47,20 @@ module "asg" {
   min_size         = var.asg_min_size
   max_size         = var.asg_max_size
 
-  # instance_refresh = {
-  #   strategy = "Rolling"
-  #   triggers = ["launch_template"]
-  #   preferences = {
-  #     min_healthy_percentage = 50
-  #   }
-  # }
+  instance_refresh = {
+    strategy = "Rolling"
+    triggers = ["launch_template"]
+    preferences = {
+      min_healthy_percentage = 50
+    }
+  }
+
+  depends_on = [
+    module.aurora,
+    module.elasticache,
+    module.efs,
+    module.alb
+  ]
 }
 
 # ---------------------------------------------------------------------------- #

@@ -9,6 +9,15 @@ for i in {1..30}; do
   sleep 2
 done
 
+# A VOIR
+if ! grep -q "HTTP_X_FORWARDED_PROTO" "$WP_CONFIG"; then
+  {
+    echo "if (isset(\$_SERVER['HTTP_X_FORWARDED_PROTO']) && \$_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') {"
+    echo "  \$_SERVER['HTTPS'] = 'on';"
+    echo "}"
+  } >> "$WP_CONFIG"
+fi
+
 # injecter SALTS si manquants
 if ! grep -q "AUTH_KEY" "$WP_CONFIG" && [[ -f "/docker-entrypoint-initwp.d/wp-salts.txt" ]]; then
   cat /docker-entrypoint-initwp.d/wp-salts.txt >> "$WP_CONFIG"
