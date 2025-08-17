@@ -193,6 +193,13 @@ define('WP_SITEURL', '$${WP_SITEURL}');
 define('FORCE_SSL_ADMIN', false);
 \$_SERVER['HTTPS'] = 'off';
 
+
+if (isset(\$_SERVER['HTTP_X_FORWARDED_PROTO']) && \$_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') {
+    \$_SERVER['HTTPS'] = 'on';
+}
+\$_SERVER['HTTP_HOST'] = parse_url(WP_HOME, PHP_URL_HOST);
+\$_SERVER['SERVER_NAME'] = parse_url(WP_HOME, PHP_URL_HOST);
+
 // Désactiver les mises à jour automatiques en production
 define('WP_AUTO_UPDATE_CORE', false);
 define('DISALLOW_FILE_EDIT', true);
@@ -266,12 +273,12 @@ log "Setting up WordPress configuration file"
 if [[ ! -f /mnt/efs/wp-config.php ]]; then
   log "Copying custom wp-config to EFS (first time)"
   
-  for i in {1..60}; do
+  for i in {1..240}; do
     if [[ -f /mnt/efs/wp-settings.php ]]; then
       log "WordPress core files detected, copying wp-config"
       break
     fi
-    log "Waiting for WordPress auto-download... ($i/60)"
+    log "Waiting for WordPress auto-download... ($i/240)"
     sleep 2
   done
 
@@ -355,6 +362,35 @@ else
 
         rm -f "$${INSTALL_LOCK}"
         log "WordPress installation completed successfully"
+
+        log "Creating server ID display plugin"
+        sudo docker exec wp-cli bash -lc "
+        mkdir -p /var/www/html/wp-content/plugins/server-info-display/
+
+        cat > /var/www/html/wp-content/plugins/server-info-display/server-info-display.php << 'PLUGIN_EOF'
+        <?php
+        /**
+        * Plugin Name: Server Info Display
+        * Description: Shows which server is serving the request
+        * Version: 1.0
+        */
+
+        function display_server_info() {
+            \$server_id = gethostname();
+            echo '<div style=\"position:fixed;bottom:10px;right:10px;background:#333;color:#fff;padding:8px 12px;border-radius:5px;font-size:11px;z-index:9999;font-family:monospace;\">Server: ' . \$server_id . '</div>';
+        }
+        add_action('wp_footer', 'display_server_info');
+
+        function server_info_shortcode() {
+            return 'Server ID: ' . gethostname();
+        }
+        add_shortcode('server_info', 'server_info_shortcode');
+        PLUGIN_EOF
+
+        wp plugin activate server-info-display --allow-root
+        "
+
+
     else
         log "WordPress already installed, skipping installation"
     fi
