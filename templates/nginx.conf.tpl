@@ -8,7 +8,16 @@ server {
 
   location /server-id {
     default_type text/plain;
+    add_header Cache-Control "no-cache, no-store, must-revalidate";
+    add_header Pragma "no-cache"; 
+    add_header Expires "0";
     return 200 "$hostname\n";
+  }
+
+  location /server-info {
+    default_type application/json;
+    add_header Cache-Control "no-cache";
+    return 200 '{"server":"$hostname","timestamp":"$time_iso8601"}';
   }
 
   root /var/www/html;
