@@ -33,16 +33,11 @@ module "cdn" {
     target_origin_id       = "alb"
     viewer_protocol_policy = "redirect-to-https"
 
-    allowed_methods = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
-    cached_methods  = ["GET", "HEAD"]
-    compress        = true
-
-    query_string    = true
-    cookies_forward = "all"
-
-    default_ttl = 60
-    min_ttl     = 0
-    max_ttl     = 300
+    allowed_methods      = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
+    cached_methods       = ["GET", "HEAD"]
+    compress             = true
+    use_forwarded_values = false
+    cache_policy_id      = aws_cloudfront_cache_policy.wordpress_dynamic.id
   }
 
   ordered_cache_behavior = []
@@ -50,5 +45,34 @@ module "cdn" {
   viewer_certificate = {
     cloudfront_default_certificate = true
     minimum_protocol_version       = "TLSv1.2_2021"
+  }
+}
+
+resource "aws_cloudfront_cache_policy" "wordpress_dynamic" {
+  name    = "wordpress-dynamic-${local.project_name}"
+  comment = "Cache policy for WordPress with load balancing demo"
+
+  default_ttl = 0
+  max_ttl     = 1
+  min_ttl     = 0
+
+  parameters_in_cache_key_and_forwarded_to_origin {
+    enable_accept_encoding_gzip   = true
+    enable_accept_encoding_brotli = true
+
+    query_strings_config {
+      query_string_behavior = "all"
+    }
+
+    headers_config {
+      header_behavior = "whitelist"
+      headers {
+        items = ["Cache-Control", "Pragma", "Expires", "Host"]
+      }
+    }
+
+    cookies_config {
+      cookie_behavior = "all"
+    }
   }
 }
