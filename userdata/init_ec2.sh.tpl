@@ -119,21 +119,29 @@ fi
 
 
 # ---------- 5) Monter EFS ----------
-log "Mounting EFS $${EFS_FS_ID}"
+
+FRESH_MOUNT=false
+
+log "Setting up EFS mount $${EFS_FS_ID}"
 sudo mkdir -p /mnt/efs
 if ! mountpoint -q /mnt/efs; then
-  for i in {1..10}; do
+  log "Mounting EFS filesystem: $${EFS_FS_ID} [...]"
+  for i in {1..20}; do
     if sudo mount -t efs -o tls "$${EFS_FS_ID}":/ /mnt/efs; then
+      log "EFS mounted successfully"
+      FRESH_MOUNT=true
       break
     fi
     log "EFS mount failed, retrying in 6s..."
     sleep 6
   done
 fi
+
 if ! mountpoint -q /mnt/efs; then
   log "ERROR: EFS not mounted. Aborting."
   exit 1
 fi
+
 
 if ! grep -q "$${EFS_FS_ID}:/ /mnt/efs efs" /etc/fstab; then
   echo "$${EFS_FS_ID}:/ /mnt/efs efs _netdev,tls 0 0" | sudo tee -a /etc/fstab
@@ -142,14 +150,78 @@ fi
 log "EFS Mounted"
 
 # ---------- 6) Préparer wp-content ----------
-sudo mkdir -p /mnt/efs/wp-content
-sudo chown -R 33:33 /mnt/efs/wp-content
-sudo chmod -R 777 /mnt/efs/wp-content
+
+if [[ "$${FRESH_MOUNT}" == "true" ]] || [[ ! -f /mnt/efs/wp-config.php ]]; then
+  log "Setting WordPress permissions on EFS (fresh mount or empty EFS)"
+  sudo chown -R 33:33 /mnt/efs 2>/dev/null || true
+  sudo chmod -R 777 /mnt/efs 2>/dev/null || true
+else
+  log "EFS already mounted with WordPress files, skipping permissions"
+fi
+
+
+
+# ----------  WordPress Configuration ----------
+
+log "Preparing WordPress configuration with salts"
+sudo mkdir -p /opt/wordpress
+
+cat > /opt/wordpress/wp-config-template.php << EOF
+<?php
+/**
+ * Conf WordPress with perso salts
+ */
+
+// Configuration base de données
+define('DB_NAME', '$${AURORA_DB_NAME}');
+define('DB_USER', '$${AURORA_DB_USER}'); 
+define('DB_PASSWORD', '$${DB_PASSWORD}');
+define('DB_HOST', '$${AURORA_HOST}');
+define('DB_CHARSET', 'utf8mb4');
+define('DB_COLLATE', '');
+
+// Salts de sécurité depuis AWS SSM
+$${WP_SALTS}
+
+// Configuration HTTP/HTTPS
+define('WP_HOME', '$${WP_HOME}');
+define('WP_SITEURL', '$${WP_SITEURL}');
+
+
+
+// Fix pour mixed content en HTTP
+define('FORCE_SSL_ADMIN', false);
+\$_SERVER['HTTPS'] = 'off';
+
+// Désactiver les mises à jour automatiques en production
+define('WP_AUTO_UPDATE_CORE', false);
+define('DISALLOW_FILE_EDIT', true);
+
+// Configuration des révisions
+define('WP_POST_REVISIONS', 3);
+
+// Configuration debug (à désactiver en production)
+define('WP_DEBUG', false);
+define('WP_DEBUG_LOG', false);
+define('WP_DEBUG_DISPLAY', false);
+
+// Configuration mémoire
+define('WP_MEMORY_LIMIT', '256M');
+
+// Table prefix
+\$table_prefix = 'wp_';
+
+if (!defined('ABSPATH')) {
+    define('ABSPATH', __DIR__ . '/');
+}
+
+require_once ABSPATH . 'wp-settings.php';
+EOF
 
 # ---------- 7) Dossier app ----------
 
 
-sudo mkdir -p /opt/wordpress
+sudo mkdir -p /opt/wordpress/nginx
 cd /opt/wordpress
 
 cat > .env <<EOF
@@ -166,38 +238,19 @@ MEMCACHED_HOST=$${MEMCACHED_HOST}
 MEMCACHED_PORT=$${MEMCACHED_PORT}
 EOF
 
-# A VOIR
 sudo cp /opt/wordpress/.env /mnt/efs/.env
 
-echo "$${WP_SALTS}" > wp-salts.txt
+log "Preparing application directory and starting containers"
 
-# ---------- 8) a) docker-compose ----------
-
-log "Copy Docker Compose"
-
+# On crée les fichiers de conf
 cat > docker-compose.yaml <<'EOF'
 ${docker_compose_content}
 EOF
-
-# ---------- 8) b) nginx ----------
-
-log "Copy configuration files (NGINX)"
-
-mkdir -p nginx
 cat > nginx/default.conf <<'EOF'
 ${nginx_conf_content}
 EOF
 
 
-# ---------- 8) c) Wordpress ----------
-
-log "Copy wordpress config"
-
-mkdir -p wp-init
-cat > wp-init/10-wp-config.sh <<'EOF'
-${wp_init_script_content}
-EOF
-chmod +x wp-init/10-wp-config.sh
 
 # ---------- 9) Démarrage ----------
 log "Starting containers (docker compose [...])"
@@ -208,36 +261,105 @@ for i in {1..60}; do
   sleep 2
 done
 
-# ---------- 10) Healthcheck + Activation plugin Memcached via wp-cli ----------
+# ---------- 9.5) Setup wp-config (une seule fois) ----------
+log "Setting up WordPress configuration file"
+if [[ ! -f /mnt/efs/wp-config.php ]]; then
+  log "Copying custom wp-config to EFS (first time)"
+  
+  for i in {1..60}; do
+    if [[ -f /mnt/efs/wp-settings.php ]]; then
+      log "WordPress core files detected, copying wp-config"
+      break
+    fi
+    log "Waiting for WordPress auto-download... ($i/60)"
+    sleep 2
+  done
 
-log "Waiting for DB to be ready..."
-for i in {1..240}; do
-  if sudo docker exec wp-cli bash -lc "export \$(grep -v '^#' /var/www/html/.env | xargs) && wp db check --allow-root"; then
-    log "WordPress database connection is OK."
-    break
+  if [[ -f /mnt/efs/wp-settings.php ]]; then
+    sudo cp /opt/wordpress/wp-config-template.php /mnt/efs/wp-config.php
+    sudo chown 33:33 /mnt/efs/wp-config.php
+    sudo chmod 644 /mnt/efs/wp-config.php
+    log "Custom wp-config.php installed successfully"
+  else
+    log "ERROR: WordPress core not found, cannot install wp-config"
+    exit 1
   fi
-  log "Waiting for DB connection... ($i/240)"
-  sleep 2
-done
+else
+  log "wp-config.php already exists on EFS, skipping copy"
+fi
 
-log "Running WordPress Core Install via wp-cli"
-sudo docker exec wp-cli bash -lc "export \$(grep -v '^#' /var/www/html/.env | xargs) && \
-  wp core install \
-    --url=$${WP_HOME} \
-    --title=\"Mon Site Cloud 1 TOTO\" \
-    --admin_user=\"${wp_admin_user}\" \
-    --admin_password=\"$${WP_ADMIN_PASSWORD}\" \
-    --admin_email=\"${wp_admin_email}\" \
-    --allow-root"
+# ---------- 10) WordPress Installation (avec protection contre doublons) ----------
+log "Checking WordPress installation status..."
 
-log "Applying post-install configurations to wp-config.php"
-sudo docker exec wp-php bash /docker-entrypoint-initwp.d/10-wp-config.sh
+INSTALL_LOCK="/mnt/efs/.wp-install-lock"
 
-log "Installing and activating W3 Total Cache"
-sudo docker exec --user www-data wp-cli bash -lc "export \$(grep -v '^#' /var/www/html/.env | xargs) && \
-  wp plugin install w3-total-cache --activate --allow-root \
-    --url=$${WP_HOME} \
-    --allow-root || true"
+is_wordpress_installed() {
+    if sudo docker exec wp-cli bash -lc "wp core is-installed --allow-root" >/dev/null 2>&1; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+if [[ -f "$${INSTALL_LOCK}" ]]; then
+    log "WordPress installation in progress by another instance, waiting..."
+    for i in {1..120}; do
+        if [[ ! -f "$${INSTALL_LOCK}" ]] || is_wordpress_installed; then
+            log "Installation completed by another instance"
+            break
+        fi
+        sleep 5
+    done
+else
+    if ! is_wordpress_installed; then
+        log "WordPress not installed, this instance will handle installation"
+        
+        touch "$${INSTALL_LOCK}"
+        
+        log "Waiting for DB to be ready..."
+        for i in {1..240}; do
+          if sudo docker exec wp-cli bash -lc "export \$(grep -v '^#' /var/www/html/.env | xargs) && wp db check --allow-root"; then
+            log "WordPress database connection is OK."
+            break
+          fi
+          log "Waiting for DB connection... ($i/240)"
+          sleep 2
+        done
+
+        log "Running WordPress Core Install via wp-cli"
+        sudo docker exec wp-cli bash -lc "
+          wp core install \
+            --url='$${WP_HOME}' \
+            --title='Mon Site Cloud TOTO' \
+            --admin_user='${wp_admin_user}' \
+            --admin_password='$${WP_ADMIN_PASSWORD}' \
+            --admin_email='${wp_admin_email}' \
+            --allow-root" || {
+            log "WordPress installation failed, removing lock"
+            rm -f "$${INSTALL_LOCK}"
+            exit 1
+        }
+
+        log "Setting up WordPress directories and permissions"
+        sudo mkdir -p /mnt/efs/wp-content/uploads
+        sudo chown -R 33:33 /mnt/efs/wp-content
+        sudo chmod -R 755 /mnt/efs/wp-content
+
+        sleep 15
+
+        log "Installing and activating W3 Total Cache"
+        sudo docker exec --user www-data wp-cli bash -lc "export \$(grep -v '^#' /var/www/html/.env | xargs) && \
+          wp plugin install w3-total-cache --activate --allow-root \
+            --url=$${WP_HOME} \
+            --allow-root || true"
+
+        rm -f "$${INSTALL_LOCK}"
+        log "WordPress installation completed successfully"
+    else
+        log "WordPress already installed, skipping installation"
+    fi
+fi
+
 
 # ---------- 11) systemd ----------
 log "Installing systemd unit for compose"

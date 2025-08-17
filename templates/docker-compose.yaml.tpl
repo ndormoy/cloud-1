@@ -11,10 +11,11 @@ services:
       WP_SITEURL: ${WP_SITEURL}
       MEMCACHED_HOST: ${MEMCACHED_HOST}
       MEMCACHED_PORT: ${MEMCACHED_PORT}
+      WORDPRESS_CONFIG_EXTRA: |
+        define('FORCE_SSL_ADMIN', false);
+        define('WP_DEBUG', false);
     volumes:
       - /mnt/efs:/var/www/html
-      - ./wp-salts.txt:/docker-entrypoint-initwp.d/wp-salts.txt:ro
-      - ./wp-init:/docker-entrypoint-initwp.d
     restart: unless-stopped
 
   nginx:
@@ -32,6 +33,8 @@ services:
   phpmyadmin:
     image: phpmyadmin:latest
     container_name: phpmyadmin
+    ports:
+      - "8080:80"
     environment:
       PMA_HOST: ${DB_HOST}
       PMA_USER: ${DB_USER}
@@ -52,7 +55,6 @@ services:
       WORDPRESS_DB_PASSWORD: ${DB_PASSWORD}
     volumes:
       - /mnt/efs:/var/www/html
-      - ./wp-salts.txt:/docker-entrypoint-initwp.d/wp-salts.txt:ro
-      - ./wp-init:/docker-entrypoint-initwp.d
+
     working_dir: /var/www/html
     entrypoint: ["bash","-lc","sleep infinity"]

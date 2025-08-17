@@ -24,8 +24,6 @@ module "aurora" {
     }
   }
 
-  # availability_zones = local.azs
-
   database_name               = var.db_name
   master_username             = var.db_master_username
   manage_master_user_password = true
