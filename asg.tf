@@ -39,7 +39,7 @@ module "asg" {
 
     docker_compose_content = file("${path.module}/templates/docker-compose.yaml.tpl")
     nginx_conf_content     = file("${path.module}/templates/nginx.conf.tpl")
-    wp_init_script_content = file("${path.module}/templates/10-wp-config.sh.tpl")
+    # dockerfile_content     = file("${path.module}/templates/Dockerfile")
   }))
 
   traffic_source_attachments = {

@@ -120,3 +120,13 @@ variable "wp_admin_email" {
   type        = string
   default     = "noedormoy@hotmail.fr"
 }
+
+# ---------------------------------------------------------------------------- #
+#                                SNS                                           #
+# ---------------------------------------------------------------------------- #
+
+variable "admin_email" {
+  description = "Email address for notifications"
+  type        = string
+  default     = "noe.dormoy@devoteam.com"
+}

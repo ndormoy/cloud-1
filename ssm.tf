@@ -77,6 +77,8 @@ resource "aws_secretsmanager_secret" "wp_admin_password" {
 
   name        = "wp-admin-password-${local.project_name}"
   description = "WordPress admin password"
+
+  recovery_window_in_days = 0
 }
 
 resource "aws_secretsmanager_secret_version" "wp_admin_password_v1" {

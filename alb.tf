@@ -53,4 +53,6 @@ module "alb" {
     }
 
   }
+
+  enable_deletion_protection = false
 }

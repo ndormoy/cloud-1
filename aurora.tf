@@ -33,7 +33,7 @@ module "aurora" {
 
 
   storage_encrypted = true
-  kms_key_id        = module.kms.key_arn
+  # kms_key_id        = module.kms.key_arn
 
   auto_minor_version_upgrade = true
 

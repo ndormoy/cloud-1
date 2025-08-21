@@ -30,14 +30,6 @@ module "elasticache" {
       to_port                      = 11211
       protocol                     = "tcp"
     }
-    # egress_none = {
-    #   type        = "egress"
-    #   from_port   = 0
-    #   to_port     = 0
-    #   protocol    = "-1"
-    #   cidr_blocks = []
-    #   description = "No outbound traffic from ElastiCache SG"
-    # }
   }
 
   subnet_group_name        = "${var.elasticache_name}-${local.project_name}"
