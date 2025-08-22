@@ -243,6 +243,9 @@ cat > nginx/default.conf <<'EOF'
 ${nginx_conf_content}
 EOF
 
+cat > Dockerfile <<'EOF'
+${dockerfile_content}
+EOF
 
 log "Starting containers (docker compose [...])"
 sudo /usr/bin/docker compose --env-file ./.env up -d

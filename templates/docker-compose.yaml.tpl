@@ -1,6 +1,9 @@
 services:
   wordpress:
-    image: wordpress:php8.2-fpm
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+      target: wp-fpm
     container_name: wp-php
     environment:
       WORDPRESS_DB_HOST: ${DB_HOST}

@@ -36,6 +36,6 @@ module "aurora" {
   # kms_key_id        = module.kms.key_arn
 
   auto_minor_version_upgrade = true
-
-  deletion_protection = false
+  deletion_protection        = false
+  skip_final_snapshot        = true
 }
