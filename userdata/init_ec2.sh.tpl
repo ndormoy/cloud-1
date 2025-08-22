@@ -351,7 +351,7 @@ else
         done
 
         log "Installing and activating W3 Total Cache"
-        
+        sudo chmod 777 /mnt/efs/wp-content/plugins
         sudo docker exec --user www-data wp-cli bash -lc "export \$(grep -v '^#' /var/www/html/.env | xargs); \
           wp plugin install w3-total-cache --activate --url=$${WP_HOME} --path=/var/www/html";
         log "W3 Total Cache installed and activated"

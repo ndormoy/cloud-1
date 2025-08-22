@@ -18,7 +18,7 @@ services:
         define('FORCE_SSL_ADMIN', false);
         define('WP_DEBUG', false);
     volumes:
-      - /mnt/efs:/var/www/html
+      - /mnt/efs:/var/www/html:z
     restart: unless-stopped
 
   nginx:
