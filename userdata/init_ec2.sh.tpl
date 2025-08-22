@@ -359,16 +359,16 @@ else
         log "Creating and activating server ID display plugin"
         sudo mkdir -p /mnt/efs/wp-content/mu-plugins/
         sudo tee /mnt/efs/wp-content/mu-plugins/server-info-display.php > /dev/null <<'PLUGIN_EOF'
-        <?php
-        /**
-        * Plugin Name: Server Info Display
-        * Description: Adds the server hostname to the footer.
-        */
-        function display_server_info_in_footer() {
-            $server_id = getenv('SERVER_ID') ?: gethostname();
-            echo '<div style="position:fixed;bottom:10px;right:10px;background:#333;color:#fff;padding:8px 12px;border-radius:5px;font-size:11px;z-index:9999;font-family:monospace;">Served by: ' . esc_html($server_id) . '</div>';
-        }
-        add_action('wp_footer', 'display_server_info_in_footer');
+<?php
+/**
+ * Plugin Name: Server Info Display
+ * Description: Adds the server hostname to the footer.
+ */
+function display_server_info_in_footer() {
+    $server_id = getenv('SERVER_ID') ?: gethostname();
+    echo '<div style="position:fixed;bottom:10px;right:10px;background:#333;color:#fff;padding:8px 12px;border-radius:5px;font-size:11px;z-index:9999;font-family:monospace;">Served by: ' . esc_html($server_id) . '</div>';
+}
+add_action('wp_footer', 'display_server_info_in_footer');
 PLUGIN_EOF
 
         sudo chown -R 33:33 /mnt/efs/wp-content/mu-plugins/
