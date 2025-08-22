@@ -34,7 +34,8 @@ export WP_SITEURL="${wp_siteurl}"
 export WP_ADMIN_PASSWORD_SECRET_ARN="${wp_admin_password_secret_arn}"
 export SERVER_ID=""
 
-SERVER_ID="$(hostname -f)"
+TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+SERVER_ID=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/instance-id)
 
 required_vars=(
   EFS_FS_ID
@@ -46,6 +47,7 @@ required_vars=(
   WP_SALTS_PARAM_NAME
   WP_HOME
   WP_SITEURL
+  SERVER_ID
 )
 
 missing=0
